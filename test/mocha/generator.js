@@ -697,3 +697,111 @@ describe("Cancellation with generators", function() {
         });
     });
 });
+
+describe("Coroutine defers", function() {
+    var co = Promise.coroutine;
+
+    it("should work in the basic case", function() {
+        var deferCalled = false;
+        var asyncFn = co(function* () {
+            co.defer(function() { deferCalled = true; });
+            var v1 = yield Promise.resolve(1);
+            return assert.equal(deferCalled, false, "defer not called at the end of coroutine")
+        });
+        return asyncFn().then(function() {
+            assert.equal(deferCalled, true, "defer should have been called")
+        })
+    })
+
+    it("should await completion if async", function() {
+        var deferCalled = false;
+        var asyncFn = co(function* () {
+            co.defer(function() {
+                return Promise.resolve().then(function() {
+                    deferCalled = true;
+                })
+            });
+            var v1 = yield Promise.resolve();
+            return
+        });
+        return asyncFn().then(function() {
+            assert.equal(deferCalled, true, "defer should have been called")
+        })
+    })
+
+    it("must run defers in reverse order", function() {
+        var order = []
+        var asyncFn = co(function* () {
+            co.defer(function() { order.push(1) });
+            co.defer(function() { order.push(2) });
+            co.defer(function() { order.push(3) });
+        });
+        return asyncFn().then(function() {
+            assert.deepEqual(order, [3,2,1])
+        });
+    })
+
+    it("must run defers in series", function() {
+        var order = []
+        var asyncFn = co(function* () {
+            co.defer(function() {
+                return Promise.resolve().then(function() {
+                    order.push(1);
+                });
+            });
+            co.defer(function() {
+                return Promise.delay(33).then(function() {
+                    order.push(2);
+                });
+            });
+            co.defer(function() {
+                return Promise.delay(66).then(function() {
+                    order.push(3);
+                });
+            });
+        });
+        return asyncFn().then(function() {
+            assert.deepEqual(order, [3,2,1])
+        });
+    })
+
+    it("should be called if promise is rejected", function() {
+        var deferCalled = false;
+        var asyncFn = co(function* () {
+            deferCalled = false;
+            co.defer(function() { deferCalled = true; });
+            var v1 = yield Promise.reject(new Error("Oops"));
+        });
+        return asyncFn().catch(function() {
+            assert.equal(deferCalled, true, "defer should have been called")
+        })
+    })
+
+    it("should be called if an error is thrown", function() {
+        var deferCalled = false;
+        var asyncFn = co(function* () {
+            deferCalled = false;
+            co.defer(function() { deferCalled = true; });
+            throw new Error("Opps")
+        });
+        return asyncFn().catch(function() {
+            assert.equal(deferCalled, true, "defer should have been called")
+        })
+    })
+
+    it("must not be called outside of generators", function() {
+        assert.throws(function() {
+            co.defer(function() {})
+        })
+    });
+
+    it("complains if a function is not passed", function() {
+        var asyncFn = co(function* () {
+            co.defer(null);
+        });
+        return asyncFn().then(function() {
+            assert.fail("co.defer did not throw on invalid input")
+        }, function(e) {})
+    });
+
+});

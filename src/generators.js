@@ -13,6 +13,30 @@ var errorObj = util.errorObj;
 var tryCatch = util.tryCatch;
 var yieldHandlers = [];
 
+if (!Function[BLUEBIRD_COROUTINES]) {
+    var currentCoroutine = null;
+    var o = {};
+    Object.defineProperty(o, "currentCoroutine", {
+        set: function(val) {
+            currentCoroutine = val;
+        },
+        get: function() {
+            return currentCoroutine;
+        },
+        enumerable: false,
+        configurable: false
+    });
+    Object.freeze(o);
+
+    Object.defineProperty(Function, BLUEBIRD_COROUTINES, {
+        value: o,
+        writable: false,
+        enumerable: false,
+        configurable: false
+    });
+}
+var coroutines = Function[BLUEBIRD_COROUTINES];
+
 function promiseFromYieldHandler(value, yieldHandlers, traceParent) {
     for (var i = 0; i < yieldHandlers.length; ++i) {
         traceParent._pushContext();
@@ -42,6 +66,7 @@ function PromiseSpawn(generatorFunction, receiver, yieldHandler, stack) {
         ? [yieldHandler].concat(yieldHandlers)
         : yieldHandlers;
     this._yieldedPromise = null;
+    this._defers = [];
 }
 util.inherits(PromiseSpawn, Proxyable);
 
@@ -64,31 +89,48 @@ PromiseSpawn.prototype._promiseCancelled = function() {
         Promise.coroutine.returnSentinel = reason;
         this._promise._attachExtraTrace(reason);
         this._promise._pushContext();
+        coroutines.currentCoroutine = this;
         result = tryCatch(this._generator["throw"]).call(this._generator,
                                                          reason);
+        coroutines.currentCoroutine = null;
         this._promise._popContext();
         if (result === errorObj && result.e === reason) {
             result = null;
         }
     } else {
         this._promise._pushContext();
+        coroutines.currentCoroutine = this;
         result = tryCatch(this._generator["return"]).call(this._generator,
                                                           undefined);
+        coroutines.currentCoroutine = null;
         this._promise._popContext();
     }
     var promise = this._promise;
     this._cleanup();
-    if (result === errorObj) {
-        promise._rejectCallback(result.e, false);
+    var defers = this._runDefers();
+    if (defers === null) {
+        if (result === errorObj) {
+            promise._rejectCallback(result.e, false);
+        } else {
+            promise.cancel();
+        }
     } else {
-        promise.cancel();
+        defers.then(function() {
+            if (result === errorObj) {
+                promise._rejectCallback(result.e, false);
+            } else {
+                promise.cancel();
+            }
+        });
     }
 };
 
 PromiseSpawn.prototype._promiseFulfilled = function(value) {
     this._yieldedPromise = null;
     this._promise._pushContext();
+    coroutines.currentCoroutine = this;
     var result = tryCatch(this._generator.next).call(this._generator, value);
+    coroutines.currentCoroutine = null;
     this._promise._popContext();
     this._continue(result);
 };
@@ -97,8 +139,10 @@ PromiseSpawn.prototype._promiseRejected = function(reason) {
     this._yieldedPromise = null;
     this._promise._attachExtraTrace(reason);
     this._promise._pushContext();
+    coroutines.currentCoroutine = this;
     var result = tryCatch(this._generator["throw"])
         .call(this._generator, reason);
+    coroutines.currentCoroutine = null;
     this._promise._popContext();
     this._continue(result);
 };
@@ -128,13 +172,29 @@ PromiseSpawn.prototype._continue = function (result) {
     var promise = this._promise;
     if (result === errorObj) {
         this._cleanup();
-        return promise._rejectCallback(result.e, false);
+        var defers = this._runDefers();
+        if (defers === null) {
+            return promise._rejectCallback(result.e, false);
+        } else {
+            defers.then(function() {
+                promise._rejectCallback(result.e, false);
+            });
+            return;
+        }
     }
 
     var value = result.value;
     if (result.done === true) {
         this._cleanup();
-        return promise._resolveCallback(value);
+        var defers = this._runDefers();
+        if (defers === null) {
+            return promise._resolveCallback(value);
+        } else {
+            defers.then(function() {
+                promise._resolveCallback(value);
+            });
+            return;
+        }
     } else {
         var maybePromise = tryConvertToPromise(value, this._promise);
         if (!(maybePromise instanceof Promise)) {
@@ -170,6 +230,21 @@ PromiseSpawn.prototype._continue = function (result) {
     }
 };
 
+PromiseSpawn.prototype._defer = function(fn) {
+    this._defers.push(fn);
+};
+
+PromiseSpawn.prototype._runDefers = function() {
+    if (this._defers.length === 0) {
+        return null;
+    }
+    for (var p = Promise.resolve(), k = this._defers.length - 1; k >= 0; --k) {
+        p = p.then(this._defers[k]);
+    }
+    p = p.caught(util.panic);
+    return p;
+};
+
 Promise.coroutine = function (generatorFunction, options) {
     //Throw synchronously because Promise.coroutine is semantically
     //something you call at "compile time" to annotate static functions
@@ -188,6 +263,16 @@ Promise.coroutine = function (generatorFunction, options) {
         spawn._promiseFulfilled(undefined);
         return ret;
     };
+};
+
+Promise.coroutine.defer = function(fn) {
+    if (typeof fn != "function") {
+        throw new TypeError(FUNCTION_ERROR + util.classString(fn));
+    }
+    if (coroutines.currentCoroutine == null) {
+        throw new RangeError("co.defer can only be used within a coroutine");
+    }
+    coroutines.currentCoroutine._defer(fn);
 };
 
 Promise.coroutine.addYieldHandler = function(fn) {
