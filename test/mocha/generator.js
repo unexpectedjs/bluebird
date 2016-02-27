@@ -709,7 +709,7 @@ describe("Coroutine defers", function() {
             return assert.equal(deferCalled, false, "defer not called at the end of coroutine")
         });
         return asyncFn().then(function() {
-            assert.equal(deferCalled, true, "defer should have been called")
+            assert.ok(deferCalled, "defer should have been called")
         })
     })
 
@@ -717,15 +717,14 @@ describe("Coroutine defers", function() {
         var deferCalled = false;
         var asyncFn = co(function* () {
             co.defer(function() {
-                return Promise.resolve().then(function() {
+                return Promise.delay(33).then(function() {
                     deferCalled = true;
                 })
             });
-            var v1 = yield Promise.resolve();
-            return
+            yield Promise.resolve();
         });
         return asyncFn().then(function() {
-            assert.equal(deferCalled, true, "defer should have been called")
+            assert.ok(deferCalled, "defer should have been called")
         })
     })
 
@@ -768,24 +767,22 @@ describe("Coroutine defers", function() {
     it("should be called if promise is rejected", function() {
         var deferCalled = false;
         var asyncFn = co(function* () {
-            deferCalled = false;
             co.defer(function() { deferCalled = true; });
-            var v1 = yield Promise.reject(new Error("Oops"));
+            yield Promise.reject(new Error("Oops"));
         });
         return asyncFn().catch(function() {
-            assert.equal(deferCalled, true, "defer should have been called")
+            assert.ok(deferCalled, "defer should have been called")
         })
     })
 
     it("should be called if an error is thrown", function() {
         var deferCalled = false;
         var asyncFn = co(function* () {
-            deferCalled = false;
             co.defer(function() { deferCalled = true; });
             throw new Error("Opps")
         });
         return asyncFn().catch(function() {
-            assert.equal(deferCalled, true, "defer should have been called")
+            assert.ok(deferCalled, "defer should have been called")
         })
     })
 
@@ -803,5 +800,19 @@ describe("Coroutine defers", function() {
             assert.fail("co.defer did not throw on invalid input")
         }, function(e) {})
     });
+
+    //TODO: cancellation + defer
+
+    it("runs the defered actions even when cancelled", function() {
+        var deferCalled = false;
+        var asyncFn = co(function* () {
+            co.defer(function() { deferCalled = true; });
+            yield Promise.delay(66)
+            return true;
+        });
+        var p = asyncFn();
+        Promise.delay(33).then(_ => p.cancel())
+        return p.finally(_ => assert.ok(deferCalled, "defer should have been called"));
+    })
 
 });
