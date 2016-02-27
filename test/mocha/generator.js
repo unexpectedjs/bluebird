@@ -691,7 +691,7 @@ describe("Cancellation with generators", function() {
         Promise.resolve().then(function() {
             p.cancel();
         });
-        return p.finally(function() {
+        p.finally(function() {
             assert.ok(finallyBlockCalled, "finally block should have been called before finally handler");
             done();
         });
@@ -771,8 +771,8 @@ describe("Coroutine defers", function() {
             yield Promise.reject(new Error("Oops"));
         });
         return asyncFn().catch(function() {
-            assert.ok(deferCalled, "defer should have been called")
-        })
+            assert.ok(deferCalled, "defer should have been called");
+        });
     })
 
     it("should be called if an error is thrown", function() {
@@ -783,13 +783,13 @@ describe("Coroutine defers", function() {
         });
         return asyncFn().catch(function() {
             assert.ok(deferCalled, "defer should have been called")
-        })
+        });
     })
 
     it("must not be called outside of generators", function() {
         assert.throws(function() {
-            co.defer(function() {})
-        })
+            co.defer(function() {});
+        });
     });
 
     it("complains if a function is not passed", function() {
@@ -798,21 +798,25 @@ describe("Coroutine defers", function() {
         });
         return asyncFn().then(function() {
             assert.fail("co.defer did not throw on invalid input")
-        }, function(e) {})
+        }, function(e) {});
     });
 
-    //TODO: cancellation + defer
-
-    it("runs the defered actions even when cancelled", function() {
+    it("runs the defered actions even when cancelled", function(done) {
         var deferCalled = false;
         var asyncFn = co(function* () {
-            co.defer(function() { deferCalled = true; });
-            yield Promise.delay(66)
-            return true;
+            co.defer(function() {
+                deferCalled = true;
+            });
+            yield Promise.delay(100);
         });
         var p = asyncFn();
-        Promise.delay(33).then(_ => p.cancel())
-        return p.finally(_ => assert.ok(deferCalled, "defer should have been called"));
+        Promise.resolve().then(_ => {
+            p.cancel();
+        });
+        p.finally(function() {
+            assert.ok(deferCalled, "defer should have been called");
+            done()
+        });
     })
 
 });
