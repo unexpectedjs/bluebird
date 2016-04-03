@@ -1,7 +1,7 @@
 {
   "name": "unexpected-bluebird",
   "description": "Full featured Promises/A+ implementation with exceptionally good performance",
-  "version": "2.9.34",
+  "version": "2.9.34-longstack",
   "keywords": [
     "promise",
     "performance",
