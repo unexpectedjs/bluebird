@@ -96,7 +96,7 @@ Promise.prototype._getCarriedStackTrace = function () {
 Promise.prototype._captureStackTrace = function (force) {
     ASSERT(arguments.length === 0);
     ASSERT(this._trace == null);
-    if (debugging || force) {
+    if (debugging || (force && CapturedTrace.isSupported())) {
         this._traceForced = force;
         this._trace = new CapturedTrace(this._peekContext());
     }
