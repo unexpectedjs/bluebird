@@ -93,17 +93,18 @@ Promise.prototype._getCarriedStackTrace = function () {
         : undefined;
 };
 
-Promise.prototype._captureStackTrace = function () {
+Promise.prototype._captureStackTrace = function (force) {
     ASSERT(arguments.length === 0);
     ASSERT(this._trace == null);
-    if (debugging) {
+    if (debugging || force) {
+        this._traceForced = force;
         this._trace = new CapturedTrace(this._peekContext());
     }
     return this;
 };
 
 Promise.prototype._attachExtraTrace = function (error, ignoreSelf) {
-    if (debugging && canAttachTrace(error)) {
+    if ((debugging || this._traceForced) && canAttachTrace(error)) {
         var trace = this._trace;
         if (trace !== undefined) {
             if (ignoreSelf) trace = trace._parent;
